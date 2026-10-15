@@ -43,6 +43,8 @@ Open http://localhost:3000.
 | `PAYPAL_MODE` | no | sandbox | `sandbox` or `live` |
 | `PAYPAL_CLIENT_ID` | for payments | — | From developer.paypal.com → Apps & Credentials |
 | `PAYPAL_SECRET` | for payments | — | Same. **Never** put this in frontend code |
+| `CONCIERGE_API_KEY` | no | — | Google Gemini key (free tier, AI Studio) for the AI Concierge. Server-side only. Unset = built-in draft bank |
+| `CONCIERGE_MODEL` | no | `gemini-2.5-flash` | Gemini model for concierge drafts |
 
 Without `PAYPAL_CLIENT_ID`/`PAYPAL_SECRET` the wallet shows "Payments aren't
 connected yet" and no real charges can happen. Tokens are **never** credited
@@ -62,6 +64,15 @@ currency checked, idempotent on the PayPal order id).
 - `GET /api/conversations`, `POST /api/conversations {peerId}`
 - `GET /api/conversations/:id/messages?after=ISO`, `POST /api/conversations/:id/messages {body}`
   — token deduction inside a DB transaction; `402 insufficient_tokens` when broke
+- `POST /api/conversations/:id/concierge {goal, hint?}` — AI Concierge drafts
+  (`hello` / `keep_going` / `ask_out` / `revive`): returns 3 message drafts +
+  a date idea. **Read-only by design** — it never sends a message and never
+  moves tokens; the user taps a draft into the composer and sends it
+  themselves. Powered by Gemini when `CONCIERGE_API_KEY` is set, otherwise a
+  built-in draft bank (response carries `source: "ai" | "bank"`). When the
+  user's balance can't cover the next message it flags `canAfford: false`
+  and the UI points at the existing PayPal top-up flow — the concierge
+  itself never touches payments
 - `GET /api/wallet`, `POST /api/wallet/create-order {packId}`,
   `POST /api/wallet/capture {orderId}`
 - `POST /api/users/:id/report {reason}`, `POST /api/users/:id/block`,

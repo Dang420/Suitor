@@ -643,6 +643,7 @@
 
     var bar = el(
       '<div class="thread-input-bar">' +
+      '<button class="concierge-btn" id="t-concierge" type="button" title="Concierge — draft help">✨</button>' +
       '<textarea class="thread-input" id="t-input" rows="1" placeholder="Message ' + esc(peer.name) + '…"></textarea>' +
       '<button class="send-btn" id="t-send">➤</button></div>'
     );
@@ -654,6 +655,7 @@
 
     document.getElementById("t-back").addEventListener("click", function () { go("chats"); });
     document.getElementById("t-more").addEventListener("click", function () { openPeerMenu(peer); });
+    document.getElementById("t-concierge").addEventListener("click", function () { openConcierge(convId, peer); });
 
     var input = document.getElementById("t-input");
     var sendBtn = document.getElementById("t-send");
@@ -726,6 +728,97 @@
         toast("Couldn't send — try again");
       }
     });
+  }
+
+  /* ---------------- Concierge ----------------
+     Draft help only: the concierge returns text, tapping a draft fills
+     the composer, and the user still taps Send (tokens charge then). */
+
+  function openConcierge(convId, peer) {
+    var goals = [
+      { id: "hello", label: "Say hello" },
+      { id: "keep_going", label: "Keep it going" },
+      { id: "ask_out", label: "Ask " + (peer.gender === "lady" ? "her" : "him") + " out" },
+      { id: "revive", label: "Revive a quiet thread" },
+    ];
+    var selected = lastMsgTs ? "keep_going" : "hello";
+    modal(
+      '<div class="m-emoji">✨</div>' +
+      "<h3>Concierge</h3>" +
+      "<p>Pick a goal — I'll draft it for " + esc(peer.name) + ". You review it, you tap Send.</p>" +
+      '<div class="goal-chips" id="cg-goals">' +
+      goals.map(function (g) {
+        return '<button type="button" class="goal-chip' + (g.id === selected ? " selected" : "") + '" data-goal="' + g.id + '">' + esc(g.label) + "</button>";
+      }).join("") +
+      "</div>" +
+      '<input class="text-input" id="cg-hint" maxlength="200" placeholder="Anything you want to say? (optional)">' +
+      '<div id="cg-results"></div>' +
+      '<div class="m-actions">' +
+      '<button class="btn-primary" id="cg-go">Get drafts</button>' +
+      '<button class="btn-secondary" id="cg-close">Close</button>' +
+      "</div>"
+    );
+    var m = document.querySelector(".modal");
+    if (m) m.classList.add("tall");
+    document.getElementById("cg-close").addEventListener("click", closeModal);
+    document.getElementById("cg-goals").querySelectorAll(".goal-chip").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        selected = chip.dataset.goal;
+        document.getElementById("cg-goals").querySelectorAll(".goal-chip").forEach(function (c) { c.classList.remove("selected"); });
+        chip.classList.add("selected");
+      });
+    });
+    document.getElementById("cg-go").addEventListener("click", function () {
+      var btn = document.getElementById("cg-go");
+      btn.disabled = true;
+      btn.textContent = "Thinking…";
+      api("/conversations/" + convId + "/concierge", {
+        method: "POST",
+        body: { goal: selected, hint: document.getElementById("cg-hint").value },
+      }).then(function (d) {
+        renderConciergeResults(d);
+        btn.disabled = false;
+        btn.textContent = "Get drafts";
+      }).catch(function () {
+        btn.disabled = false;
+        btn.textContent = "Get drafts";
+        toast("Concierge drew a blank — try again");
+      });
+    });
+  }
+
+  function renderConciergeResults(d) {
+    var box = document.getElementById("cg-results");
+    if (!box) return;
+    var html = "";
+    d.drafts.forEach(function (dr, i) {
+      html += '<button type="button" class="draft-card" data-i="' + i + '"><span class="draft-tone">' + esc(dr.tone) + "</span>" + esc(dr.text) + "</button>";
+    });
+    if (d.dateIdea) {
+      html += '<div class="date-idea"><span class="draft-tone">Date idea</span>' + esc(d.dateIdea) + "</div>";
+    }
+    if (d.canAfford === false) {
+      html += '<div class="cg-note">You\'re out of tokens for this chat. <button type="button" class="link-btn" id="cg-topup">Top up</button></div>';
+    } else if (d.cost > 0) {
+      html += '<div class="cg-note">Sending costs 🪙 ' + d.cost + " tokens — charged only when you tap Send.</div>";
+    }
+    html += '<div class="cg-note">' + (d.source === "ai" ? "Drafted by the AI concierge." : "Concierge picks.") + " Nothing sends itself.</div>";
+    box.innerHTML = html;
+    box.querySelectorAll(".draft-card").forEach(function (card) {
+      card.addEventListener("click", function () {
+        var dr = d.drafts[Number(card.dataset.i)];
+        var input = document.getElementById("t-input");
+        closeModal();
+        if (input && dr) {
+          input.value = dr.text;
+          input.focus();
+          input.style.height = "auto";
+          input.style.height = Math.min(input.scrollHeight, 110) + "px";
+        }
+      });
+    });
+    var top = document.getElementById("cg-topup");
+    if (top) top.addEventListener("click", function () { closeModal(); go("wallet"); });
   }
 
   function openPeerMenu(peer) {

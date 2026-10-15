@@ -12,6 +12,7 @@ const {
   isValidEmail,
 } = require('./auth');
 const paypal = require('./paypal');
+const concierge = require('./concierge');
 const { normalizeCode } = require('./invite');
 
 const router = express.Router();
@@ -29,6 +30,7 @@ const PACKS = [
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
 const msgLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
 const walletLimiter = rateLimit({ windowMs: 60 * 1000, max: 20 });
+const conciergeLimiter = rateLimit({ windowMs: 60 * 1000, max: 15 });
 
 function publicUser(row, balance) {
   const u = {
@@ -56,6 +58,7 @@ router.get('/config', (req, res) => {
     paypalMode: paypal.MODE,
     paypalConfigured: paypal.configured(),
     paypalClientId: paypal.configured() ? process.env.PAYPAL_CLIENT_ID : null,
+    conciergeMode: concierge.configured() ? 'ai' : 'bank',
   });
 });
 
@@ -404,6 +407,66 @@ router.post('/conversations/:id/messages', authRequired, msgLimiter, async (req,
     } catch (e) {}
     client.release();
     console.error('send message error', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// ---------- AI concierge (drafts only — never sends, never charges) ----------
+
+// Returns message drafts + a date idea for the signed-in user in this
+// conversation. Read-only by design: no message is written and no token
+// moves here. Tokens are spent only when the user sends a message
+// through POST /conversations/:id/messages, exactly as before.
+router.post('/conversations/:id/concierge', authRequired, conciergeLimiter, async (req, res) => {
+  try {
+    const conv = await getConversationFor(req.userId, req.params.id);
+    if (!conv) return res.status(404).json({ error: 'not_found' });
+    if (await isBlockedEitherWay(req.userId, conv.peer_id))
+      return res.status(403).json({ error: 'blocked' });
+
+    const goal = typeof req.body.goal === 'string' ? req.body.goal : '';
+    if (!concierge.GOALS[goal]) return res.status(400).json({ error: 'invalid_goal' });
+    const hint = cleanStr(req.body.hint, 200);
+
+    const meRes = await pool.query(
+      'SELECT name, gender, age, bio, token_balance FROM users WHERE id = $1',
+      [req.userId]
+    );
+    const peerRes = await pool.query('SELECT name, gender, age, bio FROM users WHERE id = $1', [
+      conv.peer_id,
+    ]);
+    const me = meRes.rows[0];
+    const peer = peerRes.rows[0];
+
+    const { rows: msgRows } = await pool.query(
+      `SELECT sender_id, body FROM messages
+       WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 12`,
+      [conv.id]
+    );
+    const recent = msgRows
+      .reverse()
+      .map((m) => ({ from: m.sender_id === req.userId ? 'me' : 'them', text: m.body }));
+
+    const out = await concierge.suggest({
+      goal,
+      me: { name: me.name, gender: me.gender, age: me.age, bio: me.bio },
+      peer: { name: peer.name, gender: peer.gender, age: peer.age, bio: peer.bio },
+      recent,
+      hint,
+    });
+
+    const cost = me.gender === 'gent' && peer.gender === 'lady' ? TOKEN_COST : 0;
+    res.json({
+      goal,
+      drafts: out.drafts,
+      dateIdea: out.dateIdea,
+      source: out.source,
+      cost,
+      balance: me.token_balance,
+      canAfford: cost === 0 || me.token_balance >= cost,
+    });
+  } catch (err) {
+    console.error('concierge error', err);
     res.status(500).json({ error: 'server_error' });
   }
 });

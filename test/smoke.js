@@ -29,6 +29,8 @@ function check(name, cond, extra) {
     'auth at ' + authIdx + ', welcome at ' + welcomeIdx);
   check('frontend: invite code field present', appJs.indexOf('ob-invite') !== -1);
   check('frontend: invite error messages mapped', appJs.indexOf('invite_invalid') !== -1 && appJs.indexOf('invite_exhausted') !== -1);
+  check('frontend: concierge button present', appJs.indexOf('t-concierge') !== -1);
+  check('frontend: concierge endpoint wired', appJs.indexOf('/concierge') !== -1);
 })();
 
 function makeClient() {
@@ -158,6 +160,65 @@ function makeClient() {
   const wallet = await gent.req('/api/wallet');
   check('wallet balance = 5', wallet.data.balance === 5, JSON.stringify(wallet.data));
   check('wallet lists 4 packs', wallet.data.packs && wallet.data.packs.length === 4);
+
+  // 9b. concierge: drafts only — never sends, never charges, never credits.
+  // Balance/message assertions are RELATIVE (before vs. after the call) so
+  // they verify the concierge's own contract on any database engine.
+  const msgsBeforeCg = await lady.req('/api/conversations/' + convId + '/messages');
+  const countBeforeCg = (msgsBeforeCg.data.messages || []).length;
+  const walletBeforeCg = await gent.req('/api/wallet');
+  const balBeforeCg = walletBeforeCg.data.balance;
+  const cg = await gent.req('/api/conversations/' + convId + '/concierge', {
+    method: 'POST', body: { goal: 'keep_going' },
+  });
+  check('concierge returns 200', cg.status === 200, JSON.stringify(cg.data));
+  check('concierge returns 3 drafts', Array.isArray(cg.data.drafts) && cg.data.drafts.length === 3,
+    JSON.stringify(cg.data.drafts));
+  check('concierge drafts have tone + text',
+    (cg.data.drafts || []).every((d) => d.tone && typeof d.text === 'string' && d.text.length > 0));
+  check('concierge source is bank without an AI key', cg.data.source === 'bank', cg.data.source);
+  check('concierge returns a date idea', typeof cg.data.dateIdea === 'string' && cg.data.dateIdea.length > 0);
+  check('concierge cost/balance/canAfford consistent',
+    cg.data.cost === 10 && cg.data.balance === balBeforeCg &&
+    cg.data.canAfford === (balBeforeCg >= cg.data.cost),
+    JSON.stringify(cg.data));
+  const walletAfterCg = await gent.req('/api/wallet');
+  check('concierge did not move the balance', walletAfterCg.data.balance === balBeforeCg,
+    'before ' + balBeforeCg + ', after ' + walletAfterCg.data.balance);
+  const msgsAfterCg = await lady.req('/api/conversations/' + convId + '/messages');
+  check('concierge sent nothing (message count unchanged)',
+    (msgsAfterCg.data.messages || []).length === countBeforeCg,
+    'before ' + countBeforeCg + ', after ' + (msgsAfterCg.data.messages || []).length);
+  const cgBadGoal = await gent.req('/api/conversations/' + convId + '/concierge', {
+    method: 'POST', body: { goal: 'bogus' },
+  });
+  check('concierge bogus goal -> 400 invalid_goal',
+    cgBadGoal.status === 400 && cgBadGoal.data.error === 'invalid_goal', JSON.stringify(cgBadGoal.data));
+  const cgLady = await lady.req('/api/conversations/' + convId + '/concierge', {
+    method: 'POST', body: { goal: 'hello' },
+  });
+  check('lady concierge works, cost 0',
+    cgLady.status === 200 && cgLady.data.cost === 0 && cgLady.data.canAfford === true,
+    JSON.stringify(cgLady.data));
+  // A gent whose balance can't cover one message gets canAfford: false.
+  const gentBroke = makeClient();
+  const rgb = await gentBroke.req('/api/auth/signup', {
+    method: 'POST',
+    body: { email: 'broke@test.local', password: 'password123', name: 'BrokeGent', gender: 'gent', age: 33, avatarColor: '#2fbf71' },
+  });
+  check('broke gent signup 201', rgb.status === 201, JSON.stringify(rgb.data));
+  await pool.query('UPDATE users SET token_balance = 5 WHERE id = $1', [rgb.data.user.id]);
+  const convB = await gentBroke.req('/api/conversations', { method: 'POST', body: { peerId: ladyId } });
+  const cgBroke = await gentBroke.req('/api/conversations/' + convB.data.conversation.id + '/concierge', {
+    method: 'POST', body: { goal: 'hello' },
+  });
+  check('concierge canAfford false at balance 5',
+    cgBroke.status === 200 && cgBroke.data.balance === 5 && cgBroke.data.canAfford === false,
+    JSON.stringify(cgBroke.data));
+  const cgOutsider = await makeClient().req('/api/conversations/' + convId + '/concierge', {
+    method: 'POST', body: { goal: 'hello' },
+  });
+  check('concierge unauthenticated -> 401', cgOutsider.status === 401, 'got ' + cgOutsider.status);
 
   // 10. report + block flow
   const rep = await lady.req('/api/users/' + rg.data.user.id + '/report', {
