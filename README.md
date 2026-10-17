@@ -44,6 +44,8 @@ Open http://localhost:3000.
 | `PAYPAL_CLIENT_ID` | for payments | — | From developer.paypal.com → Apps & Credentials |
 | `PAYPAL_SECRET` | for payments | — | Same. **Never** put this in frontend code |
 | `CONCIERGE_API_KEY` | no | — | Google Gemini key (free tier, AI Studio) for the AI Concierge. Server-side only. Unset = built-in draft bank |
+| `QLOO_API_KEY` | no | — | Qloo API key for Taste Match date ideas. Server-side only. Unset = built-in taste bank |
+| `QLOO_API_BASE` | no | `https://hackathon.api.qloo.com` | Qloo API base URL |
 | `CONCIERGE_MODEL` | no | `gemini-2.5-flash` | Gemini model for concierge drafts |
 
 Without `PAYPAL_CLIENT_ID`/`PAYPAL_SECRET` the wallet shows "Payments aren't
@@ -73,6 +75,18 @@ currency checked, idempotent on the PayPal order id).
   user's balance can't cover the next message it flags `canAfford: false`
   and the UI points at the existing PayPal top-up flow — the concierge
   itself never touches payments
+- **Taste Match (Qloo)** — on the `ask_out` / `keep_going` goals the date
+  idea is grounded in real taste: interests are extracted from both bios,
+  resolved to Qloo entities via `GET /search`, and Qloo's Insights API
+  (`GET /v2/insights`) returns affinity-ranked places, movies, and artists
+  that people with that taste actually love — the response adds a `taste`
+  object (`source: "qloo"`) and the UI renders a Taste Match card with
+  per-pick affinity scores. Live when `QLOO_API_KEY` is set on the server
+  (hackathon API base `https://hackathon.api.qloo.com`, overridable via
+  `QLOO_API_BASE`); without a key — or on any API error — it falls back to
+  a built-in taste bank (`source: "bank"`), so the feature never dead-ends.
+  `GET /api/config` reports `tasteMode: "api" | "bank"`. Same read-only
+  rules as the concierge: no sends, no token movement, ever
 - `GET /api/wallet`, `POST /api/wallet/create-order {packId}`,
   `POST /api/wallet/capture {orderId}`
 - `POST /api/users/:id/report {reason}`, `POST /api/users/:id/block`,

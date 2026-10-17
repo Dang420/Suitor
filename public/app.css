@@ -1345,6 +1345,25 @@ button {
   color: var(--text);
 }
 
+.taste-card {
+  background: var(--surface);
+  border: 1px solid rgba(251, 77, 126, 0.35);
+  border-radius: 14px;
+  padding: 11px 13px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.taste-pick { margin-top: 2px; }
+
+.taste-aff {
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .cg-note {
   font-size: 12px;
   color: var(--text-faint);

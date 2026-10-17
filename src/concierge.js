@@ -16,6 +16,8 @@
 // built-in bank of drafts so the feature never dead-ends.
 // ============================================================
 
+const qloo = require('./qloo');
+
 const TONES = ['Smooth', 'Playful', 'Direct'];
 
 const GOALS = {
@@ -316,11 +318,26 @@ async function suggest({ goal, me, peer, recent, hint }) {
     .filter((m) => m.text);
   const cleanHint = cleanText(hint, 200);
 
+  let out = null;
   if (configured()) {
-    const ai = await aiSuggest(g, ctx, cleanRecent, cleanHint);
-    if (ai) return ai;
+    out = await aiSuggest(g, ctx, cleanRecent, cleanHint);
   }
-  return bankSuggest(g, ctx);
+  if (!out) out = bankSuggest(g, ctx);
+
+  // Taste Match (Qloo): for the goals where a date is actually on
+  // the table, ground the date idea in both bios' taste. Garnish,
+  // never a gate — if it fails for any reason the drafts ship as-is.
+  if (g === 'ask_out' || g === 'keep_going') {
+    try {
+      const taste = await qloo.tasteDate({ meBio: ctx.meBio, peerBio: ctx.peerBio });
+      if (taste && taste.line) {
+        out = Object.assign({}, out, { dateIdea: taste.line, taste });
+      }
+    } catch (e) {
+      /* taste is garnish; drafts still ship */
+    }
+  }
+  return out;
 }
 
 module.exports = { GOALS, TONES, configured, model, suggest };

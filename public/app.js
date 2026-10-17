@@ -797,6 +797,14 @@
     if (d.dateIdea) {
       html += '<div class="date-idea"><span class="draft-tone">Date idea</span>' + esc(d.dateIdea) + "</div>";
     }
+    if (d.taste && d.taste.picks && d.taste.picks.length) {
+      var tasteIcons = { place: "🍽️", movie: "🎬", music: "🎵" };
+      html += '<div class="taste-card"><span class="draft-tone">Taste match' + (d.taste.source === "qloo" ? " · powered by Qloo" : "") + "</span>";
+      d.taste.picks.forEach(function (p) {
+        html += '<div class="taste-pick">' + (tasteIcons[p.kind] || "✨") + " " + esc(p.name) + (p.affinity ? ' <span class="taste-aff">' + p.affinity + "% match</span>" : "") + "</div>";
+      });
+      html += "</div>";
+    }
     if (d.canAfford === false) {
       html += '<div class="cg-note">You\'re out of tokens for this chat. <button type="button" class="link-btn" id="cg-topup">Top up</button></div>';
     } else if (d.cost > 0) {

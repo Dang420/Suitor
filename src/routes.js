@@ -13,6 +13,7 @@ const {
 } = require('./auth');
 const paypal = require('./paypal');
 const concierge = require('./concierge');
+const qloo = require('./qloo');
 const { normalizeCode } = require('./invite');
 
 const router = express.Router();
@@ -59,6 +60,7 @@ router.get('/config', (req, res) => {
     paypalConfigured: paypal.configured(),
     paypalClientId: paypal.configured() ? process.env.PAYPAL_CLIENT_ID : null,
     conciergeMode: concierge.configured() ? 'ai' : 'bank',
+    tasteMode: qloo.configured() ? 'api' : 'bank',
   });
 });
 
@@ -460,6 +462,7 @@ router.post('/conversations/:id/concierge', authRequired, conciergeLimiter, asyn
       goal,
       drafts: out.drafts,
       dateIdea: out.dateIdea,
+      taste: out.taste || null,
       source: out.source,
       cost,
       balance: me.token_balance,
