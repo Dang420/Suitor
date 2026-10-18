@@ -605,6 +605,7 @@
 
   var threadEls = {};
   var lastMsgTs = 0;
+  var seenMsgIds = {};
 
   function messageCost(peer) {
     if (!S.user || !peer) return 0;
@@ -652,6 +653,7 @@
 
     threadEls = { msgs: msgs };
     lastMsgTs = 0;
+    seenMsgIds = {};
 
     document.getElementById("t-back").addEventListener("click", function () { go("chats"); });
     document.getElementById("t-more").addEventListener("click", function () { openPeerMenu(peer); });
@@ -689,7 +691,13 @@
         var empty = box.querySelector(".empty-state");
         if (empty && d.messages.length) empty.remove();
       }
-      d.messages.forEach(function (m) { appendMessage(box, m); });
+      d.messages.forEach(function (m) {
+        if (m.id != null) {
+          if (seenMsgIds[m.id]) return;
+          seenMsgIds[m.id] = 1;
+        }
+        appendMessage(box, m);
+      });
       if (d.messages.length) {
         lastMsgTs = d.messages[d.messages.length - 1].ts;
         box.scrollTop = box.scrollHeight;
@@ -869,6 +877,11 @@
   /* ---------------- Init ---------------- */
   function init() {
     root = document.getElementById("root");
+    /* Paint the welcome screen immediately with built-in defaults, so a
+       cold-starting server never leaves a visitor staring at a blank dark
+       page while /config and /me are still waking up. The fetches below
+       re-render when they land. */
+    render();
     api("/config").then(function (c) {
       S.cfg.costPerMessage = c.costPerMessage;
       S.cfg.welcomeTokens = c.welcomeTokens;
@@ -882,7 +895,12 @@
         S.user = null;
         S.route = "welcome";
       });
-    }).then(render);
+    }).then(function () {
+      /* Skip the re-render if a logged-out visitor already moved on to
+         the auth form — re-rendering would wipe anything being typed. */
+      if (S.route === "auth" && !S.user) return;
+      render();
+    });
   }
 
   if (document.readyState === "loading") {
